@@ -1,0 +1,215 @@
+---
+title: "Application of machine learning algorithms"
+author: "Frederick A. Morris"
+date: "Sunday, December 21, 2014"
+output: html_document
+---
+
+####*Background*
+
+This project demonstrates the usefulness of applying machine learning algorithms.
+The analysis is based on data collected during the course of a study presented in the following research paper:
+
+Qualitative Activity Recognition of Weight Lifting Exercises
+ 
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H.Qualitative Activity
+Recognition of Weight Lifting Exercises. Proceedings of 4th Augmented Human (AH) 
+International Conference in cooperation with ACM SIGCHI (Augmented Human'13) . 
+Stuttgart, Germany: ACM SIGCHI, 2013.  http://groupware.les.inf.puc-rio.br/work.jsf?p1=11201#ixzz3M5muzIBK
+
+
+The goal of the study was to assess whether mistakes could be detected in 
+weight-lifting exercises by using activity recognition techniques. The study team
+recorded users performing the same activity correctly and with a set of common mistakes
+
+The data consisted of four 9 degrees of freedom Razor inertial measurement units (IMU), which provide three-axes acceleration, gyroscope and magnetometer data. The researchers mounted the sensors in the users' glove, armband, lumbar belt and dumbbell used by weight lifters. Participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions:
+
+* Exactly according to the specificationcation (Class A)
+* Throwing the elbows to the front (Class B)
+* Lifting the dumbbell only halfway (Class C)
+* Lowering the dumbbell only halfway (Class D)
+* Throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. 
+
+This document outlines a possible methodology using a machine learning algorithm by which we can predict the manner in which each subject did the exercise (categorized by the "classe" variable in the training set). This report describes how the model was built, how cross validation was used, what the expected out of sample error is, and why certain choices were made.  
+
+The prediction model developed will be applied to the 20 different test cases provided on the study website. 
+
+The Weight Lifting Data-set has been split into Training and Testing Data-set. The training data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here: 
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+
+```{r Load_Packages, message=FALSE, echo=TRUE, warning=FALSE}
+library(caret)
+library(RCurl)
+library(doParallel)
+```
+
+```{r Download_Data, cache=TRUE}
+
+# Download training data file
+TrainURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+TrainCon <- getURL(TrainURL,ssl.verifypeer = FALSE)
+trainRaw <- read.csv(textConnection(TrainCon))
+
+# Download the testing data file 
+
+TestURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+TestCon <-  getURL(TestURL,ssl.verifypeer = FALSE)
+testRaw <- read.csv(textConnection(TestCon))
+
+```
+
+```{r CleanPrepare_Data, cache=TRUE}
+
+# Extract the relevant measurement data
+
+VarNames <- c(grep("^accel", names(trainRaw)), grep("^gyros", names(trainRaw)), 
+              grep("^magnet",names(trainRaw)), grep("^roll", names(trainRaw)), 
+              grep("^pitch", names(trainRaw)), grep("^yaw", names(trainRaw)), 
+              grep("^total", names(trainRaw)))
+trainMaster <- trainRaw[, c(VarNames, 160)]
+testMaster <- testRaw[, c(VarNames, 160)]
+```
+
+
+####*Cross Validation*
+
+Cross validation is a model validation technique used to guard against Type III errors ("the error committed by giving the right answer to the wrong problem"), The technique is used to estimate how accurately a predictive model will perform in practice using an independent data set. 
+
+For this project, Repeated k-fold cross validation was selected. The k-fold cross validation method involves splitting the data set into k-subsets. For each fold, a subset is held out while the model is trained on all other subsets. This process is completed until accuracy is determine for each instance in the data set, and an overall accuracy estimate is provided.
+
+The process of splitting the data into k-folds can be repeated a number of times, this is called Repeated k-fold Cross Validation. The final model accuracy is taken as the mean from the number of repeats.
+
+The paper "Approximate Statistical Tests for Comparing Supervised Classification Learning Algorithms" suggest using 5 repeated 2-fold to reduce the possibility of sub-estimating the true variance of the error measure which may occur if you repeat measuring a finite sample set a large number of times.
+
+
+
+```{r Partition_Data, message=FALSE}
+# Partition Training Data into Training and Testing Subsets 
+
+set.seed(2468)
+inTrain <- createDataPartition(y=trainMaster$classe, p=.75, list=FALSE)
+training <- trainMaster[inTrain,]
+testing <- trainMaster[-inTrain,]
+
+# Extract Class Categories in Training and Testing Subsets
+
+ClassTrain <- as.factor(training$classe)
+ClassTest  <- as.factor(testing$classe)
+```
+
+
+``` {r Select_CrossValidation, message=FALSE}
+
+fitControl <- trainControl(method = "repeatedcv",number = 2, repeats = 5,
+                           allowParallel = TRUE
+                           )
+```
+
+####*Model Selection*
+
+The prediction model for this evaluation was selected after considering the results of  a study published in The Journal of Machine Learning Research on October 2014. The title of the paper  is "Do We Need Hundreds of Classifiers to Solve Real World Classification Problems?
+
+In the paper, the authors evaluate 179 classifiers arising from 17 families 
+across 121 standard data-sets from the UCI machine learning repository.
+ 
+The list of the families of algorithms investigated and the number of algorithms in each family.
+
+ *Discriminant analysis (DA): 20 classifiers
+ *Bayesian (BY) approaches: 6 classifiers
+ *Neural networks (NNET): 21 classifiers
+ *Support vector machines (SVM): 10 classifiers
+ *Decision trees (DT): 14 classifiers.
+ *Rule-based methods (RL): 12 classifiers.
+ *Boosting (BST): 20 classifiers
+ *Bagging (BAG): 24 classifiers
+ *Stacking (STC): 2 classifiers.
+ *Random Forests (RF): 8 classifiers.
+ *Other ensembles (OEN): 11 classifiers.
+ *Generalized Linear Models (GLM): 5 classifiers.
+ *Nearest neighbor methods (NN): 5 classifiers.
+ *Partial least squares and principal component regression (PLSR): 6
+ *Logistic and multinomial regression (LMR): 3 classifiers.
+ *Multivariate adaptive regression splines (MARS): 2 classifiers
+ *Other Methods (OM): 10 classifiers.
+
+The study found that the classifier most likely to be the best for classification
+problems was the Random Forest (RF) algorithm.  The study noted that current best implementation is in R and accessed via caret. In the study it achieved 94.1% of the maximum accuracy overcoming 90% in the 84.3% of the data sets.
+
+####*Model Training*
+
+The parRF algorithm which allows the implementation of the Random Forest algorithm 
+using parallel processing using a specific number of available cores on the CPU 
+of the computer executing the algorithm. The R code and a summary of the model results
+are presented below:
+
+
+```{r Start_Parallel, warning=FALSE, results='hide'}
+
+NumCores <- makePSOCKcluster(detectCores()-1)
+clusterEvalQ(NumCores, library(foreach))
+registerDoParallel(NumCores)
+```
+
+```{r parRF_Model, warning=FALSE, cache=TRUE, results='hide' }
+FitTest<- train(classe ~ ., data = training, method = "parRF", 
+                 preProcess = c("center","scale"),
+                 trControl = fitControl)
+```
+
+```{r Print_Model, warning=FALSE}
+print(FitTest)
+```
+
+As shown in the plot below, one of the interesting results of the analysis was the importance of the roll, yaw
+and pitch of the belt sensor in the classification of the quality of the exercise
+movement.
+
+```{r Variable_Importantance, warning=FALSE, message=FALSE}
+
+RocImp <- varImp(FitTest, scale = FALSE)
+```
+
+```{r Print_Importance, fig.height=7, warning=FALSE}
+plot(RocImp)
+```
+
+####*Model Validation*
+
+The result was validated using the testing data-set that was established in the cross validation partitioning process: 
+
+```{r Model_Validation, message=FALSE}
+Prediction <- predict(FitTest,testing)
+OutSampleError <- confusionMatrix(ClassTest, Prediction)
+OutSampleError
+
+```
+The out of sample error statistics is given below:
+
+```{r Error_Stats, message=FALSE}
+OutSampleError$overall
+```
+
+####*Application to 20 Test Cases*
+
+The code below applies the selected machine learning algorithm to the 20 test cases available in the test data above:
+
+```{r Model_Application, eval=TRUE}
+FinalTest <- as.character(predict(FitTest, testMaster))
+pml_write_files = function(x){
+        n = length(x)
+        for(i in 1:n){
+                filename = paste0("problem_id_",i,".txt")
+                write.table(x[i],file=filename,quote=FALSE,
+                row.names=FALSE,col.names=FALSE)
+        }
+}
+pml_write_files(FinalTest)
+```
